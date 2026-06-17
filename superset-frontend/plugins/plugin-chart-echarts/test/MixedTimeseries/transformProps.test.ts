@@ -628,3 +628,85 @@ test('temporal x coltype wires the time formatter and Time axis', () => {
   expect(typeof label).toBe('string');
   expect(label).not.toMatch(/NaN/);
 });
+
+describe('missing values in stacked series', () => {
+  // Regression test for stacked bars rendering missing (NULL) data points as a
+  // filled neighbor value (e.g. "0"/"1") on the bar and in the tooltip.
+  // For bar series, missing values must remain null so no phantom bar segment,
+  // value label or tooltip entry is rendered. For line/area series the filled
+  // neighbor value is still needed to keep the stack continuous.
+  const ts1 = 1745784000000;
+  const ts2 = 1745870400000;
+  // girl is missing in the second time period for both queries.
+  const gapRows = [
+    { boy: 1, girl: 2, ds: ts1 },
+    { boy: 3, ds: ts2 },
+  ];
+  const gapLabelMap = { ds: ['ds'], boy: ['boy'], girl: ['girl'] };
+  const gapQueryData = createTestQueryData(gapRows, {
+    label_map: gapLabelMap,
+  });
+  const gapQueriesData = [gapQueryData, gapQueryData];
+
+  const getGirlSeriesData = (
+    seriesType: EchartsTimeseriesSeriesType,
+    seriesTypeB: EchartsTimeseriesSeriesType,
+  ) => {
+    const chartProps = createEchartsTimeseriesTestChartProps<
+      EchartsMixedTimeseriesFormData,
+      EchartsMixedTimeseriesProps
+    >({
+      ...MIXED_TIMESERIES_CHART_PROPS_DEFAULTS,
+      defaultQueriesData: gapQueriesData,
+      formData: {
+        ...formData,
+        x_axis: 'ds',
+        seriesType,
+        seriesTypeB,
+        stack: true,
+        stackB: true,
+      },
+      queriesData: gapQueriesData,
+    });
+    const { echartOptions } = transformProps(chartProps);
+    const series = echartOptions.series as SeriesOption[];
+    return series
+      .filter(s => String((s as { id?: string }).id).includes('girl'))
+      .map(s => (s as { data: [unknown, unknown][] }).data);
+  };
+
+  test('keeps missing values null for stacked bar series', () => {
+    const girlSeries = getGirlSeriesData(
+      EchartsTimeseriesSeriesType.Bar,
+      EchartsTimeseriesSeriesType.Bar,
+    );
+    expect(girlSeries).toHaveLength(2);
+    girlSeries.forEach(data => {
+      // missing value is not coerced to a number (stays null/undefined)
+      expect(data[1][1] == null).toBe(true);
+    });
+  });
+
+  test('fills missing values with 0 for stacked line series', () => {
+    const girlSeries = getGirlSeriesData(
+      EchartsTimeseriesSeriesType.Line,
+      EchartsTimeseriesSeriesType.Line,
+    );
+    expect(girlSeries).toHaveLength(2);
+    girlSeries.forEach(data => {
+      expect(data[1][1]).toBe(0);
+    });
+  });
+
+  test('respects per-query series type for missing values', () => {
+    const girlSeries = getGirlSeriesData(
+      EchartsTimeseriesSeriesType.Line,
+      EchartsTimeseriesSeriesType.Bar,
+    );
+    expect(girlSeries).toHaveLength(2);
+    // Query A (line) keeps the filled neighbor value.
+    expect(girlSeries[0][1][1]).toBe(0);
+    // Query B (bar) keeps the missing value as null/undefined.
+    expect(girlSeries[1][1][1] == null).toBe(true);
+  });
+});
