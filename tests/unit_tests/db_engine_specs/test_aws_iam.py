@@ -1043,3 +1043,34 @@ def test_apply_redshift_iam_authentication_neither_workgroup_nor_cluster() -> No
         )
 
     assert "must include either workgroup_name" in str(exc_info.value)
+
+
+def test_cachetools_is_an_explicit_dependency() -> None:
+    """
+    Regression test: cachetools must be an explicit Superset dependency.
+
+    ``superset.db_engine_specs.aws_iam`` imports ``cachetools`` at module load
+    time. ``cachetools`` used to be pulled in transitively via ``google-auth``,
+    but newer ``google-auth`` releases dropped it, causing a
+    ``ModuleNotFoundError``. It must therefore be declared explicitly.
+    """
+    from importlib.metadata import requires
+
+    from packaging.requirements import Requirement
+
+    declared = {
+        Requirement(req).name
+        for req in (requires("apache-superset") or [])
+        # only consider unconditional (non-extra) requirements
+        if "extra ==" not in req
+    }
+    assert "cachetools" in declared
+
+
+def test_aws_iam_module_imports_cachetools() -> None:
+    """The aws_iam engine spec must be importable without optional extras."""
+    from cachetools import TTLCache
+
+    from superset.db_engine_specs.aws_iam import _credentials_cache
+
+    assert isinstance(_credentials_cache, TTLCache)

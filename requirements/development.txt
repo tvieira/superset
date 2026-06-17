@@ -100,6 +100,7 @@ cachelib==0.13.0
 cachetools==6.2.1
     # via
     #   -c requirements/base-constraint.txt
+    #   apache-superset
     #   google-auth
     #   py-key-value-aio
 caio==0.9.25
@@ -841,7 +842,6 @@ python-multipart==0.0.29
 pytz==2025.2
     # via
     #   -c requirements/base-constraint.txt
-    #   croniter
     #   flask-babel
     #   pandas
     #   trino

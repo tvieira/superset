@@ -38,6 +38,8 @@ dependencies = [
     # no bounds for apache-superset-core until we have a stable version
     "apache-superset-core",
     "backoff>=1.8.0",
+    # required by superset.db_engine_specs.aws_iam, previously installed transitively via google-auth
+    "cachetools>=5.0.0, <7",
     "celery>=5.3.6, <6.0.0",
     "click>=8.4.0",
     "click-option-group",

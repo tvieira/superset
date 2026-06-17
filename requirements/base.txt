@@ -45,7 +45,9 @@ cachelib==0.13.0
     #   flask-caching
     #   flask-session
 cachetools==6.2.1
-    # via google-auth
+    # via
+    #   apache-superset (pyproject.toml)
+    #   google-auth
 cattrs==25.1.1
     # via requests-cache
 celery==5.5.2
@@ -344,7 +346,6 @@ python-dotenv==1.2.2
     # via apache-superset (pyproject.toml)
 pytz==2025.2
     # via
-    #   croniter
     #   flask-babel
     #   pandas
 pyxlsb==1.0.10
