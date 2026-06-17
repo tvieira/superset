@@ -269,7 +269,10 @@ export default function transformProps(
   );
 
   const [rawSeriesA, sortedTotalValuesA] = extractSeries(rebasedDataA, {
-    fillNeighborValue: stack ? 0 : undefined,
+    // Bar series render missing values as absent rather than as a filled 0,
+    // which would otherwise show phantom value labels and tooltip entries.
+    fillNeighborValue:
+      stack && seriesType !== EchartsTimeseriesSeriesType.Bar ? 0 : undefined,
     xAxis: xAxisLabel,
     sortSeriesType,
     sortSeriesAscending,
@@ -287,7 +290,8 @@ export default function transformProps(
     xAxisCol: xAxisLabel,
   });
   const [rawSeriesB, sortedTotalValuesB] = extractSeries(rebasedDataB, {
-    fillNeighborValue: stackB ? 0 : undefined,
+    fillNeighborValue:
+      stackB && seriesTypeB !== EchartsTimeseriesSeriesType.Bar ? 0 : undefined,
     xAxis: xAxisLabel,
     sortSeriesType: sortSeriesTypeB,
     sortSeriesAscending: sortSeriesAscendingB,

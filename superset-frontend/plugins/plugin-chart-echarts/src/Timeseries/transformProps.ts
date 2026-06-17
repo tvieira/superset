@@ -324,7 +324,14 @@ export default function transformProps(
   const [rawSeries, sortedTotalValues, minPositiveValue] = extractSeries(
     rebasedData,
     {
-      fillNeighborValue: stack && !forecastEnabled ? 0 : undefined,
+      // Bar series render missing values as absent rather than as a filled 0,
+      // which would otherwise show phantom value labels and tooltip entries.
+      fillNeighborValue:
+        stack &&
+        !forecastEnabled &&
+        seriesType !== EchartsTimeseriesSeriesType.Bar
+          ? 0
+          : undefined,
       xAxis: xAxisLabel,
       extraMetricLabels,
       stack,
