@@ -24,6 +24,10 @@ assists people when migrating to a new version.
 
 ## Next
 
+### Removed `AVOID_COLORS_COLLISION` feature flag
+
+The `AVOID_COLORS_COLLISION` feature flag has been removed. The color-collision avoidance logic in `CategoricalColorScale` is now always active. If you had this flag set in your `superset_config.py`, you can safely remove it.
+
 ### Webhook alerts/reports block private/internal hosts by default
 
 Webhook alert/report dispatch (`WebhookNotification.send`) now validates the target URL's host against the same private/internal-IP block applied to dataset import URLs. If the resolved host is in a loopback, link-local, private (RFC-1918), shared-CGNAT, or multicast range, the webhook is rejected with `NotificationParamException`.
