@@ -17,7 +17,7 @@
 
 # pylint: disable=import-outside-toplevel
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 from flask import current_app
@@ -526,6 +526,7 @@ def test_get_sqla_engine(mocker: MockerFixture) -> None:
     mocker.patch("superset.models.core.get_username", return_value="alice")
 
     create_engine = mocker.patch("superset.models.core.create_engine")
+    mocker.patch("superset.models.core.sqla.event.listen")
 
     database = Database(database_name="my_db", sqlalchemy_uri="trino://")
     database._get_sqla_engine(nullpool=False)
@@ -561,6 +562,7 @@ def test_get_sqla_engine_caches_engine_per_url(mocker: MockerFixture) -> None:
         return_value=None,
     )
     create_engine = mocker.patch("superset.models.core.create_engine")
+    mocker.patch("superset.models.core.sqla.event.listen")
 
     database = Database(database_name="my_db", sqlalchemy_uri="trino://")
     database.id = 1  # Cache is keyed on id; skipped for unsaved instances.
@@ -589,6 +591,7 @@ def test_get_sqla_engine_does_not_cache_unsaved_instances(
         return_value=None,
     )
     create_engine = mocker.patch("superset.models.core.create_engine")
+    mocker.patch("superset.models.core.sqla.event.listen")
 
     Database(database_name="db_a", sqlalchemy_uri="trino://")._get_sqla_engine()
     Database(database_name="db_b", sqlalchemy_uri="trino://")._get_sqla_engine()
@@ -642,6 +645,7 @@ def test_get_sqla_engine_user_impersonation(mocker: MockerFixture) -> None:
     mocker.patch("superset.models.core.get_username", return_value="alice")
 
     create_engine = mocker.patch("superset.models.core.create_engine")
+    mocker.patch("superset.models.core.sqla.event.listen")
 
     database = Database(
         database_name="my_db",
@@ -697,6 +701,7 @@ def test_get_sqla_engine_user_impersonation_email(mocker: MockerFixture) -> None
     mocker.patch("superset.models.core.get_username", return_value="alice")
 
     create_engine = mocker.patch("superset.models.core.create_engine")
+    mocker.patch("superset.models.core.sqla.event.listen")
 
     database = Database(
         database_name="my_db",
@@ -716,37 +721,42 @@ def test_get_sqla_engine_registers_prequery_event_listener(
     mocker: MockerFixture,
 ) -> None:
     """
-    Test that get_sqla_engine registers a connect event listener for prequeries.
-
-    Engines returned by get_sqla_engine must automatically execute prequeries
-    (e.g. SET search_path) on every new connection, so that callers don't need
-    to remember to call get_prequeries() themselves.
+    Test that get_sqla_engine sets thread-local prequeries so the permanent
+    connect listener executes them on new connections.
     """
+    from superset.models.core import (
+        _PREQUERIES_LOCAL,
+        _run_prequeries_from_local,
+    )
 
     mock_engine = mocker.MagicMock()
     mocker.patch.object(Database, "_get_sqla_engine", return_value=mock_engine)
     db_engine_spec = mocker.patch.object(Database, "db_engine_spec")
     db_engine_spec.get_prequeries.return_value = ['SET search_path = "my_schema"']
-    event_listen = mocker.patch("superset.models.core.sqla.event.listen")
-    mocker.patch("superset.models.core.sqla.event.remove")
 
     database = Database(database_name="my_db", sqlalchemy_uri="postgresql://")
     with database.get_sqla_engine(catalog="my_catalog", schema="my_schema"):
-        pass
+        assert getattr(_PREQUERIES_LOCAL, "queries", None) == [
+            'SET search_path = "my_schema"'
+        ]
 
     db_engine_spec.get_prequeries.assert_called_once_with(
         database=database,
         catalog="my_catalog",
         schema="my_schema",
     )
-    event_listen.assert_called_once_with(mock_engine, "connect", mocker.ANY)
+    # After exiting the context manager, thread-local is cleared.
+    assert getattr(_PREQUERIES_LOCAL, "queries", None) is None
 
-    # Call the captured closure directly to verify cursor create → execute → close.
-    captured_fn = event_listen.call_args[0][2]
+    # Verify the permanent listener executes prequeries from thread-local.
+    _PREQUERIES_LOCAL.queries = ['SET search_path = "my_schema"']
     mock_dbapi_conn = mocker.MagicMock()
     mock_cursor = mocker.MagicMock()
     mock_dbapi_conn.cursor.return_value = mock_cursor
-    captured_fn(mock_dbapi_conn, None)
+    try:
+        _run_prequeries_from_local(mock_dbapi_conn, None)
+    finally:
+        _PREQUERIES_LOCAL.queries = None
     mock_cursor.execute.assert_called_once_with('SET search_path = "my_schema"')
     mock_cursor.close.assert_called_once()
 
@@ -758,48 +768,44 @@ def test_get_sqla_engine_prequery_cursor_closed_on_exception(
     """
     Test that the cursor is always closed even when a prequery raises.
     """
-    mock_engine = mocker.MagicMock()
-    mocker.patch.object(Database, "_get_sqla_engine", return_value=mock_engine)
-    db_engine_spec = mocker.patch.object(Database, "db_engine_spec")
-    db_engine_spec.get_prequeries.return_value = ['SET search_path = "bad_schema"']
-    event_listen = mocker.patch("superset.models.core.sqla.event.listen")
-    mocker.patch("superset.models.core.sqla.event.remove")
+    from superset.models.core import (
+        _PREQUERIES_LOCAL,
+        _run_prequeries_from_local,
+    )
 
-    database = Database(database_name="my_db", sqlalchemy_uri="postgresql://")
-    with database.get_sqla_engine(catalog=None, schema="bad_schema"):
-        pass
-
-    captured_fn = event_listen.call_args[0][2]
+    _PREQUERIES_LOCAL.queries = ['SET search_path = "bad_schema"']
     mock_dbapi_conn = mocker.MagicMock()
     mock_cursor = mocker.MagicMock()
     mock_cursor.execute.side_effect = Exception("invalid schema")
     mock_dbapi_conn.cursor.return_value = mock_cursor
 
-    with pytest.raises(Exception, match="invalid schema"):
-        captured_fn(mock_dbapi_conn, None)
+    try:
+        with pytest.raises(Exception, match="invalid schema"):
+            _run_prequeries_from_local(mock_dbapi_conn, None)
+    finally:
+        _PREQUERIES_LOCAL.queries = None
 
     mock_cursor.close.assert_called_once()
 
 
-def test_get_sqla_engine_no_prequeries_no_event_listener(
+def test_get_sqla_engine_no_prequeries_no_thread_local(
     app_context: None,
     mocker: MockerFixture,
 ) -> None:
     """
-    Test that get_sqla_engine does not register an event listener when there
-    are no prequeries.
+    Test that get_sqla_engine does not set thread-local prequeries when
+    there are none.
     """
+    from superset.models.core import _PREQUERIES_LOCAL
+
     mock_engine = mocker.MagicMock()
     mocker.patch.object(Database, "_get_sqla_engine", return_value=mock_engine)
     db_engine_spec = mocker.patch.object(Database, "db_engine_spec")
     db_engine_spec.get_prequeries.return_value = []
-    event_listen = mocker.patch("superset.models.core.sqla.event.listen")
 
     database = Database(database_name="my_db", sqlalchemy_uri="postgresql://")
     with database.get_sqla_engine(catalog=None, schema=None):
-        pass
-
-    event_listen.assert_not_called()
+        assert getattr(_PREQUERIES_LOCAL, "queries", None) is None
 
 
 def test_get_raw_connection_executes_prequeries_exactly_once(
@@ -808,35 +814,25 @@ def test_get_raw_connection_executes_prequeries_exactly_once(
 ) -> None:
     """
     Test that get_raw_connection() runs prequeries exactly once through the
-    connect event listener registered by get_sqla_engine().
+    permanent connect event listener.
 
-    Previously get_raw_connection() had its own manual prequery loop AND
-    called get_sqla_engine() (which registers the listener), so prequeries
-    ran twice.  After removing the manual loop the listener is the sole
-    execution point — this test proves exactly-once semantics.
+    The listener reads from thread-local storage set by get_sqla_engine().
     """
+    from superset.models.core import _run_prequeries_from_local
+
     mock_engine = mocker.MagicMock()
     mocker.patch.object(Database, "_get_sqla_engine", return_value=mock_engine)
     db_engine_spec = mocker.patch.object(Database, "db_engine_spec")
     prequery = 'SET search_path = "my_schema"'
     db_engine_spec.get_prequeries.return_value = [prequery]
 
-    # Capture the closure registered via sqla.event.listen.
-    captured_listeners: list[Callable[..., None]] = []
-    original_listen = mocker.patch("superset.models.core.sqla.event.listen")
-    original_listen.side_effect = lambda engine, event, fn: captured_listeners.append(
-        fn
-    )
-    mocker.patch("superset.models.core.sqla.event.remove")
-
-    # Simulate SQLAlchemy firing the "connect" event when raw_connection() is called.
+    # Simulate SQLAlchemy firing the permanent "connect" event.
     mock_dbapi_conn = mocker.MagicMock()
     mock_cursor = mocker.MagicMock()
     mock_dbapi_conn.cursor.return_value = mock_cursor
 
     def raw_connection_side_effect() -> Any:
-        for listener in captured_listeners:
-            listener(mock_dbapi_conn, None)
+        _run_prequeries_from_local(mock_dbapi_conn, None)
         return mock_dbapi_conn
 
     mock_engine.raw_connection.side_effect = raw_connection_side_effect
@@ -848,6 +844,68 @@ def test_get_raw_connection_executes_prequeries_exactly_once(
     # Exactly one prequery, exactly once — not twice, not zero.
     mock_cursor.execute.assert_called_once_with(prequery)
     mock_cursor.close.assert_called_once()
+
+
+def test_concurrent_get_sqla_engine_no_deque_mutation(
+    app_context: None,
+    mocker: MockerFixture,
+) -> None:
+    """
+    Regression test for GH #25: concurrent get_sqla_engine() calls must not
+    raise ``RuntimeError: deque mutated during iteration``.
+
+    The old implementation dynamically added/removed ``connect`` event
+    listeners on the shared cached engine.  When multiple threads did this
+    simultaneously, one thread's add/remove mutated the listener deque while
+    another thread was iterating it during connection creation.
+
+    The fix uses thread-local storage with a permanent listener, so no
+    listener add/remove happens at runtime.
+    """
+    import concurrent.futures
+    import threading
+
+    from superset.models.core import (
+        _run_prequeries_from_local,
+    )
+
+    mock_engine = mocker.MagicMock()
+    mocker.patch.object(Database, "_get_sqla_engine", return_value=mock_engine)
+    db_engine_spec = mocker.patch.object(Database, "db_engine_spec")
+
+    barrier = threading.Barrier(4)
+    errors: list[Exception] = []
+
+    from flask import current_app
+
+    flask_app = current_app._get_current_object()
+
+    def worker(schema: str) -> None:
+        try:
+            with flask_app.app_context():
+                db_engine_spec.get_prequeries.return_value = [
+                    f'SET search_path = "{schema}"'
+                ]
+                database = Database(
+                    database_name="my_db", sqlalchemy_uri="postgresql://"
+                )
+                barrier.wait(timeout=5)
+                for _ in range(50):
+                    with database.get_sqla_engine(schema=schema):
+                        # Simulate the permanent listener firing, as it
+                        # would during engine.raw_connection().
+                        mock_conn = mocker.MagicMock()
+                        mock_cursor = mocker.MagicMock()
+                        mock_conn.cursor.return_value = mock_cursor
+                        _run_prequeries_from_local(mock_conn, None)
+        except Exception as exc:
+            errors.append(exc)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(worker, f"schema_{i}") for i in range(4)]
+        concurrent.futures.wait(futures)
+
+    assert errors == [], f"Concurrent get_sqla_engine raised errors: {errors}"
 
 
 def test_is_oauth2_enabled() -> None:
