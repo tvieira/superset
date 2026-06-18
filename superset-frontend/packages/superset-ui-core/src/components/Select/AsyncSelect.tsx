@@ -733,6 +733,7 @@ const AsyncSelect = forwardRef(
             )
           }
           oneLine={oneLine}
+          popupMatchSelectWidth
           {...props}
           ref={ref}
         />
