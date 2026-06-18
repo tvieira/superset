@@ -359,6 +359,13 @@ class BaseReportState:
             state=dashboard_state,
         ).run()
 
+        # Explicitly commit the permalink so that it is visible to other
+        # database connections (e.g. the Playwright/webdriver session that
+        # fetches the permalink URL).  Without this, the nested
+        # @transaction() decorator skips the commit and the row remains
+        # invisible outside the current session.
+        db.session.commit()
+
         return get_url_path(
             "Superset.dashboard_permalink",
             key=permalink_key,
