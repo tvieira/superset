@@ -47,6 +47,32 @@ export const getCurrencySymbol = (currency: Partial<Currency>) =>
     .formatToParts(1)
     .find(x => x.type === 'currency')?.value;
 
+/**
+ * Derive the conventional symbol position for a given locale and currency
+ * using Intl.NumberFormat. Falls back to 'prefix' for unknown codes.
+ */
+export function getLocaleSymbolPosition(
+  locale: string,
+  currencyCode: string,
+): 'prefix' | 'suffix' {
+  try {
+    const parts = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: currencyCode,
+    }).formatToParts(1);
+
+    const currencyIndex = parts.findIndex(p => p.type === 'currency');
+    const integerIndex = parts.findIndex(p => p.type === 'integer');
+
+    if (currencyIndex !== -1 && integerIndex !== -1) {
+      return currencyIndex < integerIndex ? 'prefix' : 'suffix';
+    }
+  } catch {
+    // Invalid currency code – fall through to default
+  }
+  return 'prefix';
+}
+
 export function normalizeCurrency(value: RowDataValue): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'string') return null;
@@ -124,13 +150,14 @@ class CurrencyFormatter extends ExtensibleFunction {
           try {
             const symbol = getCurrencySymbol({ symbol: normalizedCurrency });
             if (symbol) {
-              if (this.currency.symbolPosition === 'prefix') {
-                return `${symbol} ${normalizedValue}`;
-              } else if (this.currency.symbolPosition === 'suffix') {
-                return `${normalizedValue} ${symbol}`;
-              }
-              // Unknown symbolPosition - default to suffix
-              return `${normalizedValue} ${symbol}`;
+              const position =
+                this.currency.symbolPosition === 'prefix' ||
+                this.currency.symbolPosition === 'suffix'
+                  ? this.currency.symbolPosition
+                  : getLocaleSymbolPosition(this.locale, normalizedCurrency);
+              return position === 'prefix'
+                ? `${symbol} ${normalizedValue}`
+                : `${normalizedValue} ${symbol}`;
             }
           } catch {
             // Invalid currency code - return value without currency symbol
@@ -143,13 +170,14 @@ class CurrencyFormatter extends ExtensibleFunction {
 
     try {
       const symbol = getCurrencySymbol(this.currency);
-      if (this.currency.symbolPosition === 'prefix') {
-        return `${symbol} ${normalizedValue}`;
-      } else if (this.currency.symbolPosition === 'suffix') {
-        return `${normalizedValue} ${symbol}`;
-      }
-      // Unknown symbolPosition - default to suffix
-      return `${normalizedValue} ${symbol}`;
+      const position =
+        this.currency.symbolPosition === 'prefix' ||
+        this.currency.symbolPosition === 'suffix'
+          ? this.currency.symbolPosition
+          : getLocaleSymbolPosition(this.locale, this.currency.symbol);
+      return position === 'prefix'
+        ? `${symbol} ${normalizedValue}`
+        : `${normalizedValue} ${symbol}`;
     } catch {
       // Invalid currency code - return value without currency symbol
       return formattedValue;

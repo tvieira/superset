@@ -20,6 +20,7 @@
 export { default as CurrencyFormatter } from './CurrencyFormatter';
 export {
   getCurrencySymbol,
+  getLocaleSymbolPosition,
   normalizeCurrency,
   hasMixedCurrencies,
 } from './CurrencyFormatter';
