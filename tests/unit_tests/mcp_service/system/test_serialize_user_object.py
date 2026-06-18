@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from superset.mcp_service.system.schemas import serialize_user_object
+from superset.mcp_service.system.schemas import serialize_user_object, UserInfo
 
 
 def test_returns_none_for_none_user() -> None:
@@ -165,3 +165,57 @@ def test_missing_fields_default_to_none(missing_field: str) -> None:
 
     assert result is not None
     assert getattr(result, missing_field) is None
+
+
+# --- UserInfo._coerce_roles_to_strings validator tests ---
+
+
+def test_userinfo_coerces_role_orm_objects_to_strings() -> None:
+    """UserInfo must accept Role ORM objects and extract .name strings.
+
+    This is the defense-in-depth fix for the bug where UserInfo.roles
+    received Role ORM objects instead of plain strings, causing
+    'input_type=Role' Pydantic validation errors.
+    """
+    role_admin = MagicMock()
+    role_admin.name = "Admin"
+    role_gamma = MagicMock()
+    role_gamma.name = "Gamma"
+
+    info = UserInfo(roles=[role_admin, role_gamma])
+
+    assert info.roles == ["Admin", "Gamma"]
+
+
+def test_userinfo_accepts_plain_string_roles() -> None:
+    info = UserInfo(roles=["Admin", "Alpha"])
+
+    assert info.roles == ["Admin", "Alpha"]
+
+
+def test_userinfo_handles_none_roles() -> None:
+    info = UserInfo(roles=None)
+
+    assert info.roles == []
+
+
+def test_userinfo_handles_empty_list_roles() -> None:
+    info = UserInfo(roles=[])
+
+    assert info.roles == []
+
+
+def test_userinfo_handles_non_iterable_roles() -> None:
+    info = UserInfo(roles=42)
+
+    assert info.roles == []
+
+
+def test_userinfo_handles_mixed_roles() -> None:
+    """Handles a mix of string role names and Role ORM objects."""
+    role_obj = MagicMock()
+    role_obj.name = "Gamma"
+
+    info = UserInfo(roles=["Admin", role_obj])
+
+    assert info.roles == ["Admin", "Gamma"]

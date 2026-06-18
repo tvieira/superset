@@ -113,6 +113,26 @@ class UserInfo(BaseModel):
         populate_by_name=True,
     )
 
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _coerce_roles_to_strings(cls, value: Any) -> list[str] | None:
+        """Coerce Role ORM objects to their ``.name`` strings.
+
+        Prevents Pydantic validation errors when raw Role ORM objects are
+        passed instead of plain strings (e.g. via ``from_attributes=True``).
+        """
+        if value is None:
+            return None
+        try:
+            return [
+                role.name
+                if hasattr(role, "name") and not isinstance(role, str)
+                else role
+                for role in value
+            ]
+        except TypeError:
+            return None
+
     @model_serializer(mode="wrap")
     def _filter_fields_by_context(self, serializer: Any, info: Any) -> dict[str, Any]:
         data = serializer(self)
