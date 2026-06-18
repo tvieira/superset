@@ -155,13 +155,13 @@ export default function transformProps(
 
   if (data.length > 0) {
     sortedData = (data as BigNumberDatum[])
-      .map(
-        d =>
-          [d[xAxisLabel], parseMetricValue(d[metricName])] as [
-            number | null,
-            number | null,
-          ],
-      )
+      .map(d => {
+        const parsed = parseMetricValue(d[metricName]);
+        return [d[xAxisLabel], typeof parsed === 'number' ? parsed : null] as [
+          number | null,
+          number | null,
+        ];
+      })
       // sort in time descending order
       .sort((a, b) => (a[0] !== null && b[0] !== null ? b[0] - a[0] : 0));
   }

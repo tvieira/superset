@@ -31,13 +31,15 @@ import {
 } from '@superset-ui/core';
 import { extendedDayjs as dayjs } from '@superset-ui/core/utils/dates';
 
-export const parseMetricValue = (metricValue: number | string | null) => {
+export const parseMetricValue = (
+  metricValue: number | string | null,
+): number | string | null => {
   if (typeof metricValue === 'string') {
     const dateObject = dayjs.utc(metricValue, undefined, true);
     if (dateObject.isValid()) {
       return dateObject.valueOf();
     }
-    return null;
+    return metricValue;
   }
   return metricValue;
 };
