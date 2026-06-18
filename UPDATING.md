@@ -24,6 +24,10 @@ assists people when migrating to a new version.
 
 ## Next
 
+### Currency symbol position respects locale when unset
+
+When a chart's currency control leaves the **Prefix or suffix** field empty, the symbol position is now derived from `Intl.NumberFormat` using the deployment locale instead of always defaulting to suffix. For example, `USD` in an `en-US` locale now renders as `$56.1M` (prefix) instead of the previous `56.1M $` (suffix). Explicitly chosen prefix/suffix positions are unaffected. Charts that relied on the previous always-suffix default for unset positions may display differently after this change.
+
 ### Removed `AVOID_COLORS_COLLISION` feature flag
 
 The `AVOID_COLORS_COLLISION` feature flag has been removed. The color-collision avoidance logic in `CategoricalColorScale` is now always active. If you had this flag set in your `superset_config.py`, you can safely remove it.

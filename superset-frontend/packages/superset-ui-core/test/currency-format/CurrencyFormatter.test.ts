@@ -20,6 +20,7 @@
 import {
   CurrencyFormatter,
   getCurrencySymbol,
+  getLocaleSymbolPosition,
   NumberFormats,
 } from '@superset-ui/core';
 
@@ -132,7 +133,8 @@ test('CurrencyFormatter:format', () => {
     // @ts-expect-error
     currency: { symbol: 'USD' },
   });
-  expect(currencyFormatterWithoutPosition(VALUE)).toEqual('56.1M $');
+  // en-US locale places USD as prefix
+  expect(currencyFormatterWithoutPosition(VALUE)).toEqual('$ 56.1M');
 
   // @ts-expect-error
   const currencyFormatterWithoutCurrency = new CurrencyFormatter({});
@@ -200,17 +202,18 @@ test('CurrencyFormatter AUTO mode uses suffix position from row context', () => 
   expect(result).toMatch(/1,000\.00.*€/);
 });
 
-test('CurrencyFormatter AUTO mode uses default suffix when symbolPosition is unknown', () => {
+test('CurrencyFormatter AUTO mode derives position from locale when symbolPosition is unset', () => {
   const formatter = new CurrencyFormatter({
     // @ts-expect-error
     currency: { symbol: 'AUTO' },
     d3Format: ',.2f',
   });
 
+  // en-US locale places EUR as prefix
   const row = { currency: 'EUR' };
   const result = formatter.format(1000, row, 'currency');
   expect(result).toContain('€');
-  expect(result).toMatch(/1,000\.00.*€/);
+  expect(result).toMatch(/€.*1,000\.00/);
 });
 
 test('CurrencyFormatter AUTO mode returns plain value when row currency is not a string (line 52)', () => {
@@ -264,4 +267,60 @@ test('CurrencyFormatter AUTO mode falls back to plain value when getCurrencySymb
   Intl.NumberFormat = OrigNumberFormat;
 
   expect(result).toBe('1,000.00');
+});
+
+test('getLocaleSymbolPosition returns prefix for en-US + USD', () => {
+  expect(getLocaleSymbolPosition('en-US', 'USD')).toBe('prefix');
+});
+
+test('getLocaleSymbolPosition returns prefix for en-US + EUR', () => {
+  expect(getLocaleSymbolPosition('en-US', 'EUR')).toBe('prefix');
+});
+
+test('getLocaleSymbolPosition returns prefix for en-US + GBP', () => {
+  expect(getLocaleSymbolPosition('en-US', 'GBP')).toBe('prefix');
+});
+
+test('getLocaleSymbolPosition returns suffix for fr-FR + EUR', () => {
+  expect(getLocaleSymbolPosition('fr-FR', 'EUR')).toBe('suffix');
+});
+
+test('getLocaleSymbolPosition returns suffix for de-DE + EUR', () => {
+  expect(getLocaleSymbolPosition('de-DE', 'EUR')).toBe('suffix');
+});
+
+test('getLocaleSymbolPosition falls back to prefix for invalid currency', () => {
+  expect(getLocaleSymbolPosition('en-US', 'INVALID')).toBe('prefix');
+});
+
+test('CurrencyFormatter uses locale-derived position when symbolPosition is unset', () => {
+  const VALUE = 56100057;
+
+  // en-US + USD → prefix
+  const enUsFormatter = new CurrencyFormatter({
+    // @ts-expect-error
+    currency: { symbol: 'USD' },
+    locale: 'en-US',
+  });
+  expect(enUsFormatter(VALUE)).toEqual('$ 56.1M');
+
+  // fr-FR + EUR → suffix
+  const frFrFormatter = new CurrencyFormatter({
+    // @ts-expect-error
+    currency: { symbol: 'EUR' },
+    locale: 'fr-FR',
+  });
+  expect(frFrFormatter(VALUE)).toEqual('56.1M €');
+});
+
+test('CurrencyFormatter explicit symbolPosition overrides locale convention', () => {
+  const VALUE = 1000;
+
+  // EUR in fr-FR is normally suffix, but explicit prefix should win
+  const formatter = new CurrencyFormatter({
+    currency: { symbol: 'EUR', symbolPosition: 'prefix' },
+    locale: 'fr-FR',
+    d3Format: ',.2f',
+  });
+  expect(formatter(VALUE)).toEqual('€ 1,000.00');
 });
