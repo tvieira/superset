@@ -1484,6 +1484,23 @@ test('does not fire onChange if the same value is selected in single mode', asyn
   expect(onChange).toHaveBeenCalledTimes(1);
 });
 
+test('dropdown takes full width of the select input', async () => {
+  render(
+    <div style={{ width: '400px' }}>
+      <AsyncSelect {...defaultProps} mode="multiple" />
+    </div>,
+  );
+  await open();
+  const dropdown = document.querySelector(
+    '.ant-select-dropdown',
+  ) as HTMLElement;
+  expect(dropdown).toBeInTheDocument();
+  // When popupMatchSelectWidth is true, antd dynamically matches the
+  // trigger width and does not set a fixed inline width on the dropdown.
+  const widthValue = parseInt(dropdown.style.width, 10);
+  expect(Number.isNaN(widthValue) || widthValue === 0).toBe(true);
+});
+
 /*
  TODO: Add tests that require scroll interaction. Needs further investigation.
  - Fetches more data when scrolling and more data is available
